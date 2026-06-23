@@ -1,135 +1,424 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TextInput,
+  Modal,
+  FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { COLORS } from "../../src/constants/colors";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import ZapsLogo from "../../assets/zapsLogo.svg";
+interface FeedItem {
+  id: string;
+  sender: string;
+  receiver: string;
+  amount: string;
+  description: string;
+  timestamp: string;
+  likes: number;
+  comments: number;
+  hasLiked: boolean;
+  visibility: "PUBLIC" | "FRIENDS" | "PRIVATE";
+}
 
-import XLMLogo from "../../assets/XML-logo.svg";
-import USDTLogo from "../../assets/USDT-logo.svg";
-import USDCLogo from "../../assets/USDC-logo.svg";
-import TransferIcon from "../../assets/icon-1.svg";
-import ReceiveIcon from "../../assets/icon-2.svg";
-import ScanIcon from "../../assets/icon-3.svg";
-import TapIcon from "../../assets/icon-3.svg"; // Using icon-3 for both or placeholder if 4th is missing
-
-const TokenItem = ({ _name, symbol, balance, value, Icon }: any) => (
-  <View style={styles.tokenCard}>
-    <View style={styles.tokenIcon}>
-      <Icon width={24} height={24} />
-    </View>
-    <View style={styles.tokenInfo}>
-      <Text style={styles.tokenSymbol}>{symbol}</Text>
-      <Text style={styles.tokenBalance}>{balance}</Text>
-    </View>
-    <Text style={styles.tokenValue}>${value}</Text>
-  </View>
-);
-
-const ActionButton = ({ label, Icon, onPress }: any) => {
-  return (
-    <TouchableOpacity
-      style={styles.actionButton}
-      activeOpacity={0.8}
-      onPress={onPress}
-    >
-      <View style={styles.actionIconContainer}>
-        <Icon width={24} height={24} />
-      </View>
-      <Text style={styles.actionLabel}>{label}</Text>
-    </TouchableOpacity>
-  );
-};
+const INITIAL_FEED: FeedItem[] = [
+  {
+    id: "1",
+    sender: "Ebube",
+    receiver: "Tolu",
+    amount: "₦5,000",
+    description: "Lunch 🍕",
+    timestamp: "2h ago",
+    likes: 5,
+    comments: 2,
+    hasLiked: false,
+    visibility: "PUBLIC",
+  },
+  {
+    id: "2",
+    sender: "Ejembiii",
+    receiver: "Amina",
+    amount: "₦12,500",
+    description: "Concert tickets 🎟️",
+    timestamp: "5h ago",
+    likes: 12,
+    comments: 4,
+    hasLiked: true,
+    visibility: "PUBLIC",
+  },
+  {
+    id: "3",
+    sender: "Tunde",
+    receiver: "Chidi",
+    amount: "₦2,000",
+    description: "Taxi ride 🚕",
+    timestamp: "1d ago",
+    likes: 2,
+    comments: 0,
+    hasLiked: false,
+    visibility: "FRIENDS",
+  },
+];
 
 export default function HomeScreen() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"public" | "friends">("public");
+  const [feed, setFeed] = useState<FeedItem[]>(INITIAL_FEED);
+  const [balance, setBalance] = useState("₦32,450.00");
+
+  // Comments Modal State
+  const [commentsModalVisible, setCommentsModalVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const [commentsList, setCommentsList] = useState<
+    { id: string; user: string; text: string; time: string }[]
+  >([]);
+
+  // Load new transfers from AsyncStorage to make it dynamic
+  useEffect(() => {
+    const loadNewTransfers = async () => {
+      try {
+        const stored = await AsyncStorage.getItem("pending_transfers");
+        if (stored) {
+          const transfers = JSON.parse(stored);
+          const formatted: FeedItem[] = transfers.map(
+            (tx: any, idx: number) => ({
+              id: `stored_${idx}`,
+              sender: "Me",
+              receiver: tx.recipient,
+              amount: `₦${tx.amount}`,
+              description: tx.description || "Sent payment",
+              timestamp: "Just now",
+              likes: 0,
+              comments: 0,
+              hasLiked: false,
+              visibility: tx.visibility || "PUBLIC",
+            })
+          );
+
+          // Filter private out of public feed
+          setFeed([...formatted, ...INITIAL_FEED]);
+
+          // Deduct from balance
+          const totalDeducted = transfers.reduce(
+            (acc: number, item: any) =>
+              acc + parseFloat(item.amount.replace(/,/g, "")),
+            0
+          );
+          if (totalDeducted > 0) {
+            setBalance(
+              `₦${(32450 - totalDeducted).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+            );
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    loadNewTransfers();
+  }, []);
+
+  const handleLike = (id: string) => {
+    setFeed(
+      feed.map((item) => {
+        if (item.id === id) {
+          return {
+            ...item,
+            hasLiked: !item.hasLiked,
+            likes: item.hasLiked ? item.likes - 1 : item.likes + 1,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  const openComments = (item: FeedItem) => {
+    setSelectedItem(item);
+    setCommentsList([
+      {
+        id: "c1",
+        user: "Tolu",
+        text: "Thanks for the food! 😋",
+        time: "1h ago",
+      },
+      {
+        id: "c2",
+        user: "Ebube",
+        text: "Anytime! Let's do it again.",
+        time: "45m ago",
+      },
+    ]);
+    setCommentsModalVisible(true);
+  };
+
+  const submitComment = () => {
+    if (!commentText.trim() || !selectedItem) return;
+    const newComment = {
+      id: Date.now().toString(),
+      user: "Me",
+      text: commentText,
+      time: "Just now",
+    };
+    setCommentsList([...commentsList, newComment]);
+    setCommentText("");
+
+    // Update comments count on item
+    setFeed(
+      feed.map((item) => {
+        if (item.id === selectedItem.id) {
+          return { ...item, comments: item.comments + 1 };
+        }
+        return item;
+      })
+    );
+  };
+
+  const filteredFeed = feed.filter((item) => {
+    if (item.visibility === "PRIVATE") return false;
+    if (activeTab === "friends") {
+      return (
+        item.visibility === "FRIENDS" ||
+        item.sender === "Me" ||
+        item.receiver === "Me"
+      );
+    }
+    return true; // public feed shows all non-private
+  });
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* Top Header */}
       <View style={styles.header}>
-        <ZapsLogo width={80} height={38} />
-        <TouchableOpacity
-          style={styles.notificationBtn}
-          onPress={() => router.push("/(personal)/settings")}
-        >
-          <Ionicons
-            name="notifications-outline"
-            size={24}
-            color={COLORS.black}
-          />
-        </TouchableOpacity>
+        <Text style={styles.logo}>zaps</Text>
+        <View style={styles.headerIcons}>
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => router.push("/(personal)/settings")}
+          >
+            <Ionicons
+              name="settings-outline"
+              size={22}
+              color={COLORS.primary}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Balance Card */}
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Wallet balance</Text>
-          <Text style={styles.balanceAmount}>$15,046.12</Text>
+          <Text style={styles.balanceLabel}>Stellar Wallet Balance</Text>
+          <Text style={styles.balanceAmount}>{balance}</Text>
 
-          <View style={styles.tokenList}>
-            <TokenItem
-              symbol="XLM"
-              balance="100.00"
-              value="125.32"
-              Icon={XLMLogo}
-            />
-            <TokenItem
-              symbol="USDT"
-              balance="100.00"
-              value="100"
-              Icon={USDTLogo}
-            />
-            <TokenItem
-              symbol="USDC"
-              balance="100.00"
-              value="100"
-              Icon={USDCLogo}
-            />
+          {/* Quick Actions Redesign */}
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.payBtn]}
+              onPress={() => router.push("/transfer")}
+            >
+              <Ionicons
+                name="send"
+                size={18}
+                color={COLORS.secondary}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.payBtnText}>Pay / Request</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.receiveBtn]}
+              onPress={() => router.push("/receive")}
+            >
+              <Ionicons
+                name="qr-code-outline"
+                size={18}
+                color={COLORS.primary}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.receiveBtnText}>Receive</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.fundBtn]}
+              onPress={() => router.push("/fund")}
+            >
+              <Ionicons
+                name="swap-horizontal"
+                size={18}
+                color={COLORS.primary}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.fundBtnText}>Fund</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Social Feed Section */}
+        <View style={styles.feedContainer}>
+          {/* Feed Header tabs */}
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[
+                styles.tabItem,
+                activeTab === "public" && styles.tabItemActive,
+              ]}
+              onPress={() => setActiveTab("public")}
+            >
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === "public" && styles.tabLabelActive,
+                ]}
+              >
+                Public Feed
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.tabItem,
+                activeTab === "friends" && styles.tabItemActive,
+              ]}
+              onPress={() => setActiveTab("friends")}
+            >
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === "friends" && styles.tabLabelActive,
+                ]}
+              >
+                Friends
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.ZapsIdContainer}>
-            <Text style={styles.ZapsIdLabel}>Zaps ID</Text>
-            <View style={styles.ZapsIdRow}>
-              <Text style={styles.ZapsIdValue}>Ejembiii.zaps</Text>
-              <TouchableOpacity>
-                <Ionicons name="copy-outline" size={16} color={COLORS.black} />
+          {/* Feed List */}
+          {filteredFeed.map((item) => (
+            <View key={item.id} style={styles.feedCard}>
+              <View style={styles.feedHeader}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{item.sender[0]}</Text>
+                </View>
+                <View style={styles.paymentInfo}>
+                  <Text style={styles.paymentText}>
+                    <Text style={styles.boldText}>{item.sender}</Text> paid{" "}
+                    <Text style={styles.boldText}>{item.receiver}</Text>
+                  </Text>
+                  <Text style={styles.timestamp}>{item.timestamp}</Text>
+                </View>
+                <Text style={styles.paymentAmount}>{item.amount}</Text>
+              </View>
+
+              <View style={styles.memoContainer}>
+                <Text style={styles.memoText}>{item.description}</Text>
+              </View>
+
+              <View style={styles.actionsDivider} />
+
+              <View style={styles.feedActions}>
+                <TouchableOpacity
+                  style={styles.actionItem}
+                  onPress={() => handleLike(item.id)}
+                >
+                  <Ionicons
+                    name={item.hasLiked ? "heart" : "heart-outline"}
+                    size={20}
+                    color={item.hasLiked ? "#EF4444" : "#666"}
+                  />
+                  <Text
+                    style={[
+                      styles.actionCount,
+                      item.hasLiked && { color: "#EF4444" },
+                    ]}
+                  >
+                    {item.likes}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionItem}
+                  onPress={() => openComments(item)}
+                >
+                  <Ionicons name="chatbubble-outline" size={20} color="#666" />
+                  <Text style={styles.actionCount}>{item.comments}</Text>
+                </TouchableOpacity>
+
+                <View style={{ flex: 1 }} />
+
+                <Ionicons
+                  name={
+                    item.visibility === "PUBLIC"
+                      ? "globe-outline"
+                      : "people-outline"
+                  }
+                  size={16}
+                  color="#999"
+                />
+              </View>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* Comments Modal */}
+      <Modal
+        visible={commentsModalVisible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Comments</Text>
+              <TouchableOpacity onPress={() => setCommentsModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={commentsList}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ paddingVertical: 12 }}
+              renderItem={({ item }) => (
+                <View style={styles.commentItem}>
+                  <View style={styles.commentAvatar}>
+                    <Text style={styles.avatarText}>{item.user[0]}</Text>
+                  </View>
+                  <View style={styles.commentDetails}>
+                    <View style={styles.commentMeta}>
+                      <Text style={styles.commentUser}>{item.user}</Text>
+                      <Text style={styles.commentTime}>{item.time}</Text>
+                    </View>
+                    <Text style={styles.commentText}>{item.text}</Text>
+                  </View>
+                </View>
+              )}
+            />
+
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.commentInput}
+                placeholder="Write a comment..."
+                value={commentText}
+                onChangeText={setCommentText}
+              />
+              <TouchableOpacity style={styles.sendBtn} onPress={submitComment}>
+                <Ionicons name="send" size={20} color={COLORS.primary} />
               </TouchableOpacity>
             </View>
           </View>
         </View>
-
-        <View style={styles.actionsGrid}>
-          <ActionButton
-            label="Transfer"
-            Icon={TransferIcon}
-            onPress={() => router.push("/transfer")}
-          />
-          <ActionButton
-            label="Receive"
-            Icon={ReceiveIcon}
-            onPress={() => router.push("/receive")}
-          />
-          <ActionButton
-            label="Scan to pay"
-            Icon={ScanIcon}
-            onPress={() => router.push("/scan")}
-          />
-          <ActionButton
-            label="Tap to pay"
-            Icon={TapIcon}
-            onPress={() => router.push("/tap-to-pay")}
-          />
-        </View>
-      </ScrollView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -137,136 +426,296 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: "#FDFDFD",
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
   },
   logo: {
-    fontSize: 24,
-    fontFamily: "Outfit_700Bold",
-    color: COLORS.black,
+    fontSize: 28,
+    fontFamily: "Anton_400Regular",
+    letterSpacing: 1.5,
+    color: COLORS.primary,
+    textTransform: "lowercase",
   },
-  notificationBtn: {
-    padding: 5,
+  headerIcons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  headerBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "#F5F5F5",
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+    paddingTop: 12,
   },
   balanceCard: {
     backgroundColor: COLORS.white,
     borderRadius: 24,
-    padding: 24,
+    padding: 20,
     borderWidth: 1,
-    borderColor: "#F0F0F0",
-    elevation: 2,
+    borderColor: "#EAEAEA",
+    marginBottom: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
     shadowRadius: 10,
-    marginBottom: 24,
+    elevation: 2,
   },
   balanceLabel: {
-    fontSize: 16,
+    fontSize: 13,
     fontFamily: "Outfit_400Regular",
-    color: "#666",
-    marginBottom: 8,
+    color: "#777",
+    marginBottom: 4,
   },
   balanceAmount: {
-    fontSize: 36,
+    fontSize: 34,
     fontFamily: "Outfit_700Bold",
-    color: COLORS.black,
-    marginBottom: 24,
-  },
-  tokenList: {
-    gap: 12,
+    color: COLORS.primary,
     marginBottom: 20,
   },
-  tokenCard: {
+  quickActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    paddingHorizontal: 10,
+  },
+  payBtn: {
+    flex: 1.5,
+    backgroundColor: COLORS.primary,
+  },
+  payBtnText: {
+    color: COLORS.secondary,
+    fontSize: 14,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  receiveBtn: {
+    backgroundColor: "#F5F5F5",
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+  receiveBtnText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  fundBtn: {
+    backgroundColor: "#F5F5F5",
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+  fundBtnText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  feedContainer: {
+    marginTop: 8,
+  },
+  tabBar: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+    marginBottom: 16,
+  },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  tabItemActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.primary,
+  },
+  tabLabel: {
+    fontSize: 15,
+    fontFamily: "Outfit_500Medium",
+    color: "#888",
+  },
+  tabLabelActive: {
+    color: COLORS.primary,
+    fontFamily: "Outfit_700Bold",
+  },
+  feedCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#ECECEC",
+  },
+  feedHeader: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 100,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
   },
-  tokenIcon: {
+  avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#E2F0D9",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
   },
-  tokenInfo: {
+  avatarText: {
+    color: COLORS.primary,
+    fontFamily: "Outfit_700Bold",
+    fontSize: 16,
+  },
+  paymentInfo: {
     flex: 1,
   },
-  tokenSymbol: {
-    fontSize: 16,
+  paymentText: {
+    fontSize: 15,
+    fontFamily: "Outfit_400Regular",
+    color: "#333",
+  },
+  boldText: {
     fontFamily: "Outfit_700Bold",
-    color: COLORS.black,
+    color: "#111",
   },
-  tokenBalance: {
-    fontSize: 14,
-    fontFamily: "Outfit_400Regular",
-    color: "#666",
-  },
-  tokenValue: {
-    fontSize: 16,
-    fontFamily: "Outfit_500Medium",
-    color: COLORS.black,
-  },
-  ZapsIdContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
-  },
-  ZapsIdLabel: {
-    fontSize: 14,
-    fontFamily: "Outfit_400Regular",
+  timestamp: {
+    fontSize: 12,
     color: "#999",
+    marginTop: 2,
   },
-  ZapsIdRow: {
+  paymentAmount: {
+    fontSize: 16,
+    fontFamily: "Outfit_700Bold",
+    color: "#2E7D32",
+  },
+  memoContainer: {
+    marginTop: 12,
+    backgroundColor: "#F5F8F6",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  memoText: {
+    fontSize: 14,
+    color: "#444",
+    fontFamily: "Outfit_400Regular",
+  },
+  actionsDivider: {
+    height: 1,
+    backgroundColor: "#F5F5F5",
+    marginVertical: 12,
+  },
+  feedActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 16,
   },
-  ZapsIdValue: {
-    fontSize: 14,
-    fontFamily: "Outfit_700Bold",
-    color: COLORS.black,
-  },
-  actionsGrid: {
+  actionItem: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 15,
-    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 6,
   },
-  actionButton: {
-    width: "47%",
-    height: 80,
-    backgroundColor: COLORS.primary,
-    borderRadius: 100,
+  actionCount: {
+    fontSize: 13,
+    color: "#666",
+    fontFamily: "Outfit_500Medium",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    paddingTop: 20,
+    maxHeight: "75%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: "Outfit_700Bold",
+    color: COLORS.primary,
+  },
+  commentItem: {
+    flexDirection: "row",
+    marginBottom: 16,
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F0F0F0",
     justifyContent: "center",
     alignItems: "center",
+    marginRight: 10,
+  },
+  commentDetails: {
+    flex: 1,
+    backgroundColor: "#F5F5F5",
+    padding: 10,
+    borderRadius: 12,
+  },
+  commentMeta: {
     flexDirection: "row",
-    paddingHorizontal: 15,
+    justifyContent: "space-between",
+    marginBottom: 4,
   },
-  actionIconContainer: {
-    marginRight: 8,
+  commentUser: {
+    fontSize: 13,
+    fontFamily: "Outfit_700Bold",
+    color: "#222",
   },
-  actionLabel: {
-    fontSize: 16,
-    fontFamily: "Outfit_600SemiBold",
-    color: COLORS.secondary,
+  commentTime: {
+    fontSize: 11,
+    color: "#999",
+  },
+  commentText: {
+    fontSize: 13,
+    color: "#444",
+    fontFamily: "Outfit_400Regular",
+  },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderRadius: 24,
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingVertical: 4,
+    marginTop: 12,
+  },
+  commentInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 14,
+    fontFamily: "Outfit_400Regular",
+  },
+  sendBtn: {
+    padding: 8,
   },
 });

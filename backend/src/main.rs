@@ -1,35 +1,54 @@
-use zaps_backend::{app::create_app, config::Config, db, telemetry};
+#![allow(dead_code, unused_variables, unused_imports)]
+
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::net::SocketAddr;
-use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+mod api;
+mod config;
+mod db;
+mod indexer;
+mod services;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize telemetry
-    telemetry::init_tracing()?;
+async fn main() {
+    // Initialize logging
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "zaps_backend=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
-    // Load configuration
-    let config = Config::load()?;
+    tracing::info!("Initializing Zaps Social Backend...");
 
-    // Initialize database
-    let db_pool =
-        db::create_pool_with_max_size(&config.database.url, config.database.max_pool_size).await?;
+    // Setup routes
+    let app = Router::new()
+        .route("/health", get(health_check))
+        .nest("/api/auth", api::auth_routes())
+        .nest("/api/users", api::user_routes())
+        .nest("/api/feed", api::feed_routes())
+        .nest("/api/social", api::social_routes())
+        .nest("/api/bridge", api::bridge_routes());
 
-    // Run database migrations
-    db::run_migrations(&config.database.url).await?;
+    // Spawn indexer in the background
+    tokio::spawn(async {
+        if let Err(e) = indexer::worker::run().await {
+            tracing::error!("Stellar Indexer background worker failed: {:?}", e);
+        }
+    });
 
-    // Create application
-    let app = create_app(db_pool, config.clone()).await?;
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    tracing::info!("Listening on {}", addr);
 
-    // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    info!("Starting BLINKS backend server on {}", addr);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
-
-    Ok(())
+async fn health_check() -> &'static str {
+    "OK"
 }

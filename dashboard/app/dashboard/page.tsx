@@ -25,10 +25,10 @@ export default function OverviewPage() {
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
           <StatCard label="Total Users" value={data?.total_users ?? 0} />
-          <StatCard label="Total Payments" value={data?.total_payments ?? 0} color="text-indigo-600" />
-          <StatCard label="Transfers" value={data?.total_transfers ?? 0} />
-          <StatCard label="Withdrawals" value={data?.total_withdrawals ?? 0} />
-          <StatCard label="Active Merchants" value={data?.active_merchants ?? 0} color="text-green-600" />
+          <StatCard label="Total Paid (₦)" value={data?.total_volume_naira ?? 0} color="text-green-600" />
+          <StatCard label="Social Feed Posts" value={data?.total_social_posts ?? 0} />
+          <StatCard label="Likes & Comments" value={data?.total_interactions ?? 0} color="text-pink-600" />
+          <StatCard label="Allbridge Deposits" value={data?.total_bridge_deposits ?? 0} color="text-indigo-600" />
         </div>
       )}
 

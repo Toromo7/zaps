@@ -17,12 +17,12 @@ import { COLORS } from "../src/constants/colors";
 import { Button } from "../src/components/Button";
 import { Input } from "../src/components/Input";
 import { AccountTypeCard } from "../src/components/AccountTypeCard";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import ZapsIcon from "../assets/icon-4.svg";
 import WalletIcon from "../assets/wallet.svg";
 import XLMLogo from "../assets/XML-logo.svg";
 import USDTLogo from "../assets/USDT-logo.svg";
-import BNBLogo from "../assets/bnb.svg";
 import USDCLogo from "../assets/USDC-logo.svg";
 
 if (
@@ -87,19 +87,42 @@ function TransferScreen() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [transferType, setTransferType] = useState<"ZAPS" | "external" | null>(
-    null
+    "ZAPS"
   );
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState<
+    "PUBLIC" | "FRIENDS" | "PRIVATE"
+  >("PUBLIC");
   const [selectedToken, setSelectedToken] = useState(TOKENS[0].id);
 
   const token = TOKENS.find((t) => t.id === selectedToken) || TOKENS[0];
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    if (step === 2) {
+      // Save payment state to AsyncStorage so home screen updates
+      try {
+        const stored = await AsyncStorage.getItem("pending_transfers");
+        const list = stored ? JSON.parse(stored) : [];
+        list.unshift({
+          recipient,
+          amount,
+          description: description || "Sent money 💸",
+          visibility,
+          token: token.symbol,
+        });
+        await AsyncStorage.setItem("pending_transfers", JSON.stringify(list));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     if (step === 3) {
       router.replace("/(personal)/home");
       return;
     }
+
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setStep(step + 1);
   };
@@ -108,7 +131,6 @@ function TransferScreen() {
     if (step === 0) {
       router.back();
     } else if (step === 3) {
-      // Can't go back from success usually, but let's just go home
       router.replace("/(personal)/home");
     } else {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -143,7 +165,9 @@ function TransferScreen() {
       <View style={styles.inputsSection}>
         <Input
           placeholder={
-            transferType === "ZAPS" ? "Recipient ZAPS ID" : "Wallet Address"
+            transferType === "ZAPS"
+              ? "Recipient ZAPS ID (e.g. tolu.zaps)"
+              : "Wallet Address"
           }
           value={recipient}
           onChangeText={setRecipient}
@@ -152,24 +176,96 @@ function TransferScreen() {
         />
 
         <Input
-          placeholder="Amount"
+          placeholder="Amount (₦)"
           value={amount}
           onChangeText={setAmount}
           keyboardType="numeric"
           style={styles.transferInput}
         />
+
+        <Input
+          placeholder="What is this for? (e.g. Lunch 🍕)"
+          value={description}
+          onChangeText={setDescription}
+          style={styles.transferInput}
+        />
       </View>
 
-      <View style={styles.networkContainer}>
-        <View style={styles.networkContainerInner}>
-          <View style={styles.networkIcon}>
-            <BNBLogo width={40} height={40} />
-          </View>
-          <View>
-            <Text style={styles.tokenBalance}>Network</Text>
-            <Text style={styles.tokenSymbol}>BSC(BEP20)</Text>
-          </View>
+      {/* Visibility Selector */}
+      <View style={styles.visibilitySection}>
+        <Text style={styles.sectionLabel}>Who can see this payment?</Text>
+        <View style={styles.visibilityOptions}>
+          <TouchableOpacity
+            style={[
+              styles.visibilityBtn,
+              visibility === "PUBLIC" && styles.visibilityBtnActive,
+            ]}
+            onPress={() => setVisibility("PUBLIC")}
+          >
+            <Ionicons
+              name="globe-outline"
+              size={18}
+              color={visibility === "PUBLIC" ? COLORS.secondary : "#666"}
+            />
+            <Text
+              style={[
+                styles.visibilityText,
+                visibility === "PUBLIC" && styles.visibilityTextActive,
+              ]}
+            >
+              Public
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.visibilityBtn,
+              visibility === "FRIENDS" && styles.visibilityBtnActive,
+            ]}
+            onPress={() => setVisibility("FRIENDS")}
+          >
+            <Ionicons
+              name="people-outline"
+              size={18}
+              color={visibility === "FRIENDS" ? COLORS.secondary : "#666"}
+            />
+            <Text
+              style={[
+                styles.visibilityText,
+                visibility === "FRIENDS" && styles.visibilityTextActive,
+              ]}
+            >
+              Friends
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.visibilityBtn,
+              visibility === "PRIVATE" && styles.visibilityBtnActive,
+            ]}
+            onPress={() => setVisibility("PRIVATE")}
+          >
+            <Ionicons
+              name="lock-closed-outline"
+              size={18}
+              color={visibility === "PRIVATE" ? COLORS.secondary : "#666"}
+            />
+            <Text
+              style={[
+                styles.visibilityText,
+                visibility === "PRIVATE" && styles.visibilityTextActive,
+              ]}
+            >
+              Private
+            </Text>
+          </TouchableOpacity>
         </View>
+        <Text style={styles.visibilityDesc}>
+          {visibility === "PUBLIC" && "Visible to anyone on the Zaps network."}
+          {visibility === "FRIENDS" && "Visible only to you and your friends."}
+          {visibility === "PRIVATE" && "Visible only to you and the recipient."}
+        </Text>
       </View>
 
       <View style={styles.payWithSection}>
@@ -195,9 +291,9 @@ function TransferScreen() {
           <token.Icon width={60} height={60} />
         </View>
         <Text style={styles.summaryAmountText}>
-          {amount} {token.symbol}
+          ₦{amount} (via {token.symbol})
         </Text>
-        <Text style={styles.summaryFiatText}>$100</Text>
+        <Text style={styles.summaryFiatText}>Social payment on Stellar</Text>
 
         <View style={styles.divider} />
 
@@ -206,16 +302,29 @@ function TransferScreen() {
             <ZapsIcon width={16} height={16} />
           </View>
           <View style={styles.infoCol}>
-            <Text style={styles.infoLabel}>Recipient ID</Text>
+            <Text style={styles.infoLabel}>Recipient</Text>
             <Text style={styles.infoValue}>{recipient}</Text>
           </View>
         </View>
 
-        <View style={[styles.infoRow, { marginTop: 24 }]}>
-          <View style={styles.infoCol}>
-            <Text style={styles.infoLabel}>Date</Text>
+        <View style={[styles.infoRow, { marginTop: 16 }]}>
+          <View style={styles.recipientBadge}>
+            <Ionicons name="chatbubble-outline" size={16} color="#777" />
           </View>
-          <Text style={styles.infoValueRight}>Nov 12 2025, 8.12 AM</Text>
+          <View style={styles.infoCol}>
+            <Text style={styles.infoLabel}>Note</Text>
+            <Text style={styles.infoValue}>{description || "No note"}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.infoRow, { marginTop: 16 }]}>
+          <View style={styles.recipientBadge}>
+            <Ionicons name="eye-outline" size={16} color="#777" />
+          </View>
+          <View style={styles.infoCol}>
+            <Text style={styles.infoLabel}>Privacy</Text>
+            <Text style={styles.infoValue}>{visibility}</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -237,16 +346,14 @@ function TransferScreen() {
           ]}
         />
         <View style={styles.successCheck}>
-          <Ionicons name="checkmark" size={60} color="#0E4A47" />
+          <Ionicons name="checkmark" size={60} color="#1A4B4A" />
         </View>
       </View>
 
       <Text style={styles.successTitle}>Transfer Successful</Text>
 
       <View style={styles.amountCapsule}>
-        <Text style={styles.amountCapsuleText}>
-          {amount} {token.symbol}
-        </Text>
+        <Text style={styles.amountCapsuleText}>₦{amount}</Text>
       </View>
     </View>
   );
@@ -261,7 +368,7 @@ function TransferScreen() {
             <Ionicons name="arrow-back" size={24} color={COLORS.black} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            {step === 2 ? "Summary & confirmation" : "Transfer"}
+            {step === 2 ? "Summary & confirmation" : "Social Transfer"}
           </Text>
           <View style={{ width: 40 }} />
         </View>
@@ -286,7 +393,7 @@ function TransferScreen() {
             step === 1
               ? "Review"
               : step === 2
-                ? "Transfer"
+                ? "Confirm & Pay"
                 : step === 3
                   ? "Done"
                   : "Continue"
@@ -297,17 +404,7 @@ function TransferScreen() {
             (step === 1 && (!recipient || !amount)) ||
             (step === 2 && false)
           }
-          icon={
-            step === 2 ? (
-              <Ionicons
-                name="refresh-outline"
-                size={20}
-                color={COLORS.secondary}
-                style={{ marginRight: 8, transform: [{ rotate: "45deg" }] }}
-              />
-            ) : undefined
-          }
-          style={{ backgroundColor: "#0E4A47" }}
+          style={{ backgroundColor: "#1A4B4A" }}
         />
       </View>
     </SafeAreaView>
@@ -367,10 +464,55 @@ const styles = StyleSheet.create({
   transferInput: {
     borderWidth: 1,
     borderColor: COLORS.gray,
-    height: 64,
+    height: 60,
+  },
+  visibilitySection: {
+    marginBottom: 24,
+  },
+  sectionLabel: {
+    fontSize: 15,
+    fontFamily: "Outfit_600SemiBold",
+    color: COLORS.black,
+    marginBottom: 10,
+  },
+  visibilityOptions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  visibilityBtn: {
+    flex: 1,
+    flexDirection: "row",
+    height: 44,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FDFDFD",
+  },
+  visibilityBtnActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  visibilityText: {
+    fontSize: 13,
+    fontFamily: "Outfit_500Medium",
+    color: "#555",
+  },
+  visibilityTextActive: {
+    color: COLORS.secondary,
+    fontFamily: "Outfit_700Bold",
+  },
+  visibilityDesc: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 8,
+    fontFamily: "Outfit_400Regular",
   },
   payWithSection: {
     flex: 1,
+    marginTop: 12,
   },
   payWithLabel: {
     fontSize: 18,
@@ -393,15 +535,6 @@ const styles = StyleSheet.create({
   tokenCardSelected: {
     borderColor: COLORS.primary,
     backgroundColor: "#F0FDF4",
-  },
-  networkContainer: {
-    marginBottom: 32,
-  },
-  networkContainerInner: {
-    flexDirection: "row",
-  },
-  networkIcon: {
-    marginRight: 12,
   },
   tokenIcon: {
     width: 48,
@@ -433,28 +566,28 @@ const styles = StyleSheet.create({
   summaryCardLarge: {
     backgroundColor: COLORS.white,
     borderRadius: 24,
-    padding: 30,
+    padding: 24,
     borderWidth: 1,
     borderColor: "#F0F0F0",
     alignItems: "center",
-    marginTop: 20,
+    marginTop: 10,
   },
   summaryIconLarge: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: "#F5F5F5",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   summaryAmountText: {
-    fontSize: 28,
+    fontSize: 26,
     fontFamily: "Outfit_700Bold",
     color: COLORS.black,
   },
   summaryFiatText: {
-    fontSize: 18,
+    fontSize: 15,
     fontFamily: "Outfit_500Medium",
     color: "#666",
     marginTop: 4,
@@ -463,7 +596,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#F0F0F0",
     width: "100%",
-    marginVertical: 30,
+    marginVertical: 20,
   },
   infoRow: {
     flexDirection: "row",
@@ -471,9 +604,9 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   recipientBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "#F5F5F5",
     justifyContent: "center",
     alignItems: "center",
@@ -488,15 +621,10 @@ const styles = StyleSheet.create({
     color: "#999",
   },
   infoValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: "Outfit_600SemiBold",
     color: COLORS.black,
     marginTop: 2,
-  },
-  infoValueRight: {
-    fontSize: 14,
-    fontFamily: "Outfit_500Medium",
-    color: COLORS.black,
   },
   successOuter: {
     width: 250,
@@ -516,14 +644,14 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
     borderWidth: 4,
-    borderColor: "#0E4A47",
+    borderColor: "#1A4B4A",
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: COLORS.white,
   },
   successTitle: {
-    fontSize: 20,
-    fontFamily: "Outfit_600SemiBold",
+    fontSize: 22,
+    fontFamily: "Outfit_700Bold",
     color: COLORS.black,
     marginBottom: 20,
   },
